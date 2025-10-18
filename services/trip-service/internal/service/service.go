@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"ride-sharing/services/trip-service/internal/domain"
 	tripTypes "ride-sharing/services/trip-service/pkg/types"
+	"ride-sharing/shared/proto/trip"
 	"ride-sharing/shared/types"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -30,6 +31,7 @@ func (s *TripServiceImpl) CreateTrip(ctx context.Context, fare *domain.RideFareM
 		UserID:   fare.UserID,
 		Status:   "pending",
 		RideFare: fare,
+		Driver:   &trip.TripDriver{},
 	}
 
 	newTrip, err := s.repository.CreateTrip(ctx, trip)
@@ -76,7 +78,7 @@ func (s *TripServiceImpl) EstimatePackagesPriceWithRoute(route *tripTypes.OSRMAP
 	return estimatedPrice
 }
 
-func (s *TripServiceImpl) GenerateTripFares(ctx context.Context, rideFares []*domain.RideFareModel, userId string) ([]*domain.RideFareModel, error) {
+func (s *TripServiceImpl) GenerateTripFares(ctx context.Context, rideFares []*domain.RideFareModel, userId string, route *tripTypes.OSRMAPIResponse) ([]*domain.RideFareModel, error) {
 	fares := make([]*domain.RideFareModel, len(rideFares))
 
 	for i, f := range rideFares {
@@ -86,6 +88,7 @@ func (s *TripServiceImpl) GenerateTripFares(ctx context.Context, rideFares []*do
 			ID:                id,
 			TotalPriceInCents: f.TotalPriceInCents,
 			PackageSlug:       f.PackageSlug,
+			Route:             route,
 		}
 
 		if err := s.repository.SaveRideFare(ctx, fare); err != nil {
@@ -96,6 +99,23 @@ func (s *TripServiceImpl) GenerateTripFares(ctx context.Context, rideFares []*do
 	}
 
 	return fares, nil
+}
+
+func (s *TripServiceImpl) GetAndValidateFare(ctx context.Context, fareID, userID string) (*domain.RideFareModel, error) {
+	fare, err := s.repository.GetRideByFareID(ctx, fareID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get trip fare: %v", err)
+	}
+
+	if fare == nil {
+		return nil, fmt.Errorf("fare does not exist")
+	}
+
+	if fare.UserID != userID {
+		return nil, fmt.Errorf("fares does not belong to the user")
+	}
+
+	return fare, nil
 }
 
 func estimateFare(route *tripTypes.OSRMAPIResponse, fare *domain.RideFareModel) *domain.RideFareModel {
