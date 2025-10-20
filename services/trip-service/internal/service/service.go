@@ -41,7 +41,6 @@ func (s *TripServiceImpl) CreateTrip(ctx context.Context, fare *domain.RideFareM
 
 	return newTrip, nil
 }
-
 func (s *TripServiceImpl) GetRoute(ctx context.Context, pickup, destination *types.Coordinate) (*tripTypes.OSRMAPIResponse, error) {
 	url := fmt.Sprintf(
 		"http://router.project-osrm.org/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
