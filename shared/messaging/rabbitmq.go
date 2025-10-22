@@ -13,6 +13,8 @@ type RabbitMQ struct {
 	Ch   *amqp.Channel
 }
 
+type MessageHandler func(context.Context, amqp.Delivery) error
+
 func NewRabbitMQ(uri string) (*RabbitMQ, error) {
 	conn, err := amqp.Dial(uri)
 	if err != nil {
@@ -38,7 +40,7 @@ func NewRabbitMQ(uri string) (*RabbitMQ, error) {
 func (r *RabbitMQ) setupExchangesAndQueues() error {
 	_, err := r.Ch.QueueDeclare(
 		"hello", //name
-		false,   //durable
+		true,    //durable
 		false,   //delete when unused
 		false,   //exclusive
 		false,   //no-wait
@@ -50,6 +52,54 @@ func (r *RabbitMQ) setupExchangesAndQueues() error {
 	return nil
 }
 
+func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) error {
+	// fair dispatch
+	err := r.Ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set Qos: %v", err)
+	}
+
+	msgs, err := r.Ch.Consume(
+		queueName, // queue
+		"",        // consumer
+		false,     // auto-ack
+		false,     // exclusive
+		false,     // no-local
+		false,     // no-wait
+		nil,       // args
+	)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	go func() {
+		for msg := range msgs {
+			log.Printf("received a message %v", msg)
+			if err := handler(ctx, msg); err != nil {
+				log.Printf("failed to handle the message: %v", err)
+
+				if err := msg.Nack(false, false); err != nil {
+					log.Printf("ERROR: failed to nack message %v", err)
+				}
+
+				continue
+			}
+
+			if err := msg.Ack(false); err != nil {
+				log.Printf("ERROR: failed to ack message %v", err)
+			}
+		}
+	}()
+
+	return nil
+}
+
 func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, message string) error {
 	return r.Ch.PublishWithContext(ctx,
 		"",         // exchange
@@ -57,8 +107,9 @@ func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, messag
 		false,      // mandatory
 		false,      // immediate
 		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        []byte(message),
+			ContentType:  "text/plain",
+			Body:         []byte(message),
+			DeliveryMode: amqp.Persistent,
 		},
 	)
 }
