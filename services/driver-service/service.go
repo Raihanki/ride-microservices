@@ -60,3 +60,19 @@ func (s *DriverService) UnregisterDriver(driverId string) {
 		}
 	}
 }
+
+func (s *DriverService) FindAvailableDrivers(packageType string) []string {
+	var matchingDrivers []string
+
+	for _, d := range s.drivers {
+		if d.Driver.PackageSlug == packageType {
+			matchingDrivers = append(matchingDrivers, d.Driver.Id)
+		}
+	}
+
+	if len(matchingDrivers) == 0 {
+		return []string{}
+	}
+
+	return matchingDrivers
+}
